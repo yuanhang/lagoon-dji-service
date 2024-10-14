@@ -1,28 +1,64 @@
-version: "3"
+#version: "3"
+networks:
+  dji-service-bridge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.6.0/24
+volumes:
+  certs:
+  vhost:
+  html:
+  conf:
+  dhparam:
+  acme:
+  dji-mysql-data:
+x-common-config: &common-config  # Define a YAML anchor named 'common-config'
+  #  platform: ${SERVER_PLATFORM}
+  networks:
+    - dji-service-bridge
+  restart: always
+  logging:
+    options:
+      max-size: "100m"
+      max-file: 1
+  deploy:
+    replicas: 1
+    restart_policy:
+      condition: any
+      delay: 5s
+      window: 20s
 services:
-  nginx:
-    image: dji/nginx:latest
-    networks:
-      - cloud_service_bridge
+  dji-nginx:
+    <<: *common-config
+    image: dji-web:latest
     ports:
       - "8080:8080"
     volumes:
       - /etc/localtime:/etc/localtime
-  cloud_api_sample:
-    image: dji/cloud_api_sample:latest
+  dji-service:
+    <<: *common-config
+    platform: linux/x86_64
+    image: dji-service:latest
     depends_on:
-      - mysql
-      - emqx
-      - redis
+      - dji-mysql
+      - dji-emqx
+      - dji-redis
     ports:
       - "6789:6789"
     volumes:
       - /etc/localtime:/etc/localtime
-    hostname: cloud_api_sample
-    restart: "always"
-    networks:
-      - cloud_service_bridge
-  emqx:
+    hostname: dji-service
+    environment:
+      DATABASE_DJI_HOST: ${DATABASE_DJI_HOST}
+      DATABASE_DJI_PASSWORD: ${DATABASE_DJI_PASSWORD}
+      REDIS_DJI_HOST: ${REDIS_DJI_HOST}
+      ALIYUN_STS_ACCESS_KEY_ID: ${ALIYUN_STS_ACCESS_KEY_ID}
+      ALIYUN_STS_ACCESS_KEY_SECRET: ${ALIYUN_STS_ACCESS_KEY_SECRET}
+      ALIYUN_STS_ROLE_ARN: ${ALIYUN_STS_ROLE_ARN}
+      ALIYUN_OSS_BUCKET_NAME: ${ALIYUN_OSS_BUCKET_NAME}
+  dji-emqx:
+    <<: *common-config
     image: emqx:4.4
     ports:
       - "18083:18083"
@@ -33,35 +69,24 @@ services:
     environment:
       - EMQX_ALLOW_ANONYMOUS=true
     hostname: emqx-broker
-    networks:
-      - cloud_service_bridge
-  mysql:
-    image: dji/mysql:latest
-    networks:
-      - cloud_service_bridge
+  dji-mysql:
+    <<: *common-config
+    image: dji-service-mysql:latest
     ports:
       - "3308:3306"
     volumes:
       # - /etc/group:/etc/group:ro
       # - /etc/passwd:/etc/passwd:ro
       - /etc/localtime:/etc/localtime
-      - ./data/mysql:/var/lib/mysql
+#      - ./data/mysql:/var/lib/mysql
+      - dji-mysql-data:/var/lib/mysql
     environment:
-      - MYSQL_ROOT_PASSWORD=root
-    hostname: cloud_api_sample_mysql
-  redis:
+      - MYSQL_ROOT_PASSWORD=${DATABASE_DJI_PASSWORD}
+    hostname: ${DATABASE_DJI_HOST}
+  dji-redis:
+    <<: *common-config
     image: redis:6.2
-    restart: "always"
-    hostname: cloud_api_sample_redis
+    hostname: ${REDIS_DJI_HOST}
     ports:
-      - "6379:6379"
-    networks:
-      - cloud_service_bridge
+      - "6380:6379"
     command: redis-server
-
-networks:
-  cloud_service_bridge:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 192.168.6.0/24
